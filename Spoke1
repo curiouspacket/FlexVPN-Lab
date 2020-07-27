@@ -1,0 +1,83 @@
+vrf definition lan1
+ rd 1:1
+ route-target export 1:1
+ route-target import 1:1
+ !
+ address-family ipv4
+ exit-address-family
+!
+vrf definition lan2
+ rd 2:2
+ route-target export 2:2
+ route-target import 2:2
+ !
+ address-family ipv4
+ exit-address-family
+!
+clock timezone CET 1 0
+!
+ip cef
+no ipv6 cef
+mpls ldp loop-detection
+!
+!
+crypto ikev2 profile default
+ match identity remote any
+ identity local fqdn Spoke1.lab.com
+ authentication local  pre-share key cisco
+ authentication remote  pre-share key cisco
+ dpd 60 2 on-demand
+!
+!
+!
+!
+crypto ipsec profile default
+ set ikev2-profile default
+!         
+!
+!
+!
+!
+!
+interface Tunnel0
+ ip address 10.0.0.20 255.255.255.255
+ mpls bgp forwarding
+ tunnel source Ethernet0/0
+ tunnel destination 172.16.20.1
+ tunnel protection ipsec profile default
+!
+interface gig2
+ description WAN
+ ip address 172.16.20.20 255.255.255.0
+!
+interface Loopback1
+ vrf forwarding lan1
+ ip address 192.168.113.1 255.255.255.0
+!
+interface Loopback2
+ vrf forwarding lan2
+ ip address 192.168.123.1 255.255.255.0
+!
+router bgp 100
+ bgp log-neighbor-changes
+ neighbor 10.0.0.1 remote-as 10
+ neighbor 10.0.0.1 ebgp-multihop 255
+ neighbor 10.0.0.1 update-source Tunnel0
+ !
+ address-family ipv4
+  neighbor 10.0.0.1 activate
+ exit-address-family
+ !        
+ address-family vpnv4
+  neighbor 10.0.0.1 activate
+  neighbor 10.0.0.1 send-community both
+ exit-address-family
+ !
+ address-family ipv4 vrf lan1
+  redistribute connected
+ exit-address-family
+ !
+ address-family ipv4 vrf lan2
+  redistribute connected
+ exit-address-family
+!
