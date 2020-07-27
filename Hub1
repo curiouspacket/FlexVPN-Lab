@@ -1,0 +1,144 @@
+clock timezone CET 1 0
+!
+## VRF with proper RD and RT
+ip vrf lan1
+ rd 1:1
+ route-target export 1:1
+ route-target import 1:1
+!
+ip vrf lan2
+ rd 2:2
+ route-target export 2:2
+ route-target import 2:2
+!         
+ip cef
+no ipv6 cef
+!
+multilink bundle-name authenticated
+mpls ldp loop-detection
+!
+!
+!
+!
+!
+!
+!
+##ikev2 policy with pre-shared keys
+crypto ikev2 profile default
+ match identity remote any
+ identity local fqdn Hub1.lab.com
+ authentication local  pre-share key cisco
+ authentication remote  pre-share key cisco
+ dpd 60 2 on-demand
+ virtual-template 1
+!
+
+crypto ipsec profile default
+ set ikev2-profile default
+!
+!
+!
+!
+!
+!
+## Used as Hub headend of VPN Tunnels
+interface Loopback0
+ description VT source interface
+ ip address 10.0.0.1 255.255.255.255
+!
+interface gig2
+ description WAN
+ ip address 172.16.20.1 255.255.255.0
+!
+interface Loopback1
+ ip vrf forwarding lan1
+ ip address 192.168.110.1 255.255.255.0
+!
+interface Loopback2
+ ip vrf forwarding lan2
+ ip address 192.168.111.1 255.255.255.0
+!
+interface Virtual-Template1 type tunnel
+ ip unnumbered Loopback0
+ ip nhrp network-id 1
+ ip nhrp redirect
+ mpls bgp forwarding
+ tunnel protection ipsec profile default
+!
+## BGP config with peer group to match any range of peers
+## connection-mode passive means he will not initate the session
+router bgp 10
+ bgp log-neighbor-changes
+ bgp listen range 0.0.0.0/0 peer-group mpls
+ bgp listen limit 5000
+ neighbor mpls peer-group
+ neighbor mpls remote-as 100
+ neighbor mpls transport connection-mode passive
+ neighbor mpls update-source Loopback0
+ !
+ address-family ipv4
+  redistribute static route-map global
+  neighbor mpls activate
+  neighbor mpls next-hop-self
+ exit-address-family
+ !
+ address-family vpnv4
+  neighbor mpls activate
+  neighbor mpls send-community both
+ exit-address-family
+ !
+ address-family ipv4 vrf lan1
+  redistribute connected
+  redistribute static route-map lan1
+  default-information originate
+ exit-address-family
+ !
+ address-family ipv4 vrf lan2
+  redistribute connected
+  redistribute static route-map lan2
+  default-information originate
+ exit-address-family
+!
+!
+!
+## Need defualt to bring up BGP or use dynamic routing*** ospf?##
+ip route 0.0.0.0 0.0.0.0 172.16.20.20 name route_to_internet
+ip route vrf lan1 0.0.0.0 0.0.0.0 Null0 tag 666 name default_originate
+ip route vrf lan2 0.0.0.0 0.0.0.0 Null0 tag 667 name default_originate
+!
+route-map lan1 permit 10
+ match tag 666
+!
+route-map lan2 permit 10
+ match tag 667
+###### Block Neighbor ####
+interface Gig2
+description WAN
+ip access-group deny-bgp in
+!
+## Seq 10 is example where you would replace 1.1.1.1 with remote site tunnel ip###
+ip access-list extended deny-bgp
+ 10 deny   tcp host 10.0.0.1 host 1.1.1.1 eq bgp
+ 20 permit ip any any
+#### Example ####
+ip access-list extended deny-bgp
+5 deny tcp host 10.0.0.1 host 10.0.0.20 eq bgp
+!
+do clear ip bgp 10.0.0.20 all
+## This will bring down only this neighbor and block from initating new session till you remove seq 5##
+## Remove ###
+ip access-list extended deny-bgp
+no 5
+!
+
+ ## 
+ documentation
+ MPLS over FlexVPN
+ https://content.cisco.com/chapter.sjs?uri=/searchable/chapter/content/en/us/td/docs/ios-xml/ios/sec_conn_ike2vpn/configuration/xe-3s/sec-flex-vpn-xe-3s-book/sec-cfg-mpls-flex.html.xml
+ 
+ MPLS over GRE
+ https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/mp_l3_vpns/configuration/xe-3s/mp-l3-vpns-xe-3s-book/mp-vpn-gre.html#:~:text=The%20MPLS%20over%20GRE%20feature,over%20a%20non%2DMPLS%20network.&text=The%20encapsulation%20of%20MPLS%20packets,link%20across%20non%2DMPLS%20networks.
+ 
+ http://www.labminutes.com/video/sec/FlexVPN
+ ###
+ 
